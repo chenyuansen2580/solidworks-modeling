@@ -1,0 +1,10 @@
+name: solidworks-gears
+status: verified
+parent: solidworks-modeling
+description: "标准渐开线直齿轮、整圈齿廓拼接、齿根过渡、同草图一次拉伸"
+entry: SKILL.md
+capabilities:
+  - gear.involute
+  - gear.full_ring
+  - sketch.spline
+verified_on: "2022 SP5 (30.5.0.0049)"

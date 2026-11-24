@@ -1,0 +1,10 @@
+name: solidworks-sheetmetal-weldment
+status: verified
+parent: solidworks-modeling
+description: "钣金基体法兰、结构件焊件、角钢型材、切割清单、折弯参数回读"
+entry: SKILL.md
+capabilities:
+  - part.sheetmetal_base_flange
+  - weldment.structural
+  - weldment.cut_list (pilot)
+verified_on: "2022 SP5 (30.5.0.0049)"

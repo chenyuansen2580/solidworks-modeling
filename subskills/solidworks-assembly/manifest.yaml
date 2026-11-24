@@ -1,0 +1,12 @@
+name: solidworks-assembly
+status: verified
+parent: solidworks-modeling
+description: "bbox 摆位、全部固定、同心/距离/重合配合、漂移检测、干涉检查"
+entry: SKILL.md
+capabilities:
+  - asm.insert
+  - asm.place
+  - asm.fix
+  - asm.mate.*
+  - export.step
+verified_on: "2022 SP5 (30.5.0.0049)"

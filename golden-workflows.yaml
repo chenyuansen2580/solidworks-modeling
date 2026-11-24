@@ -1,0 +1,220 @@
+schema_version: "1.0"
+
+# Golden Workflows = 标准化真机验收工作流。
+# 学 wzyn 的 required_inputs / required_artifacts / real_acceptance 结构，
+# 但只收录本机 SW2022 SP5 真跑过的案例，不编造跨版本结论。
+
+target_first_pass_rate: 0.90
+
+workflows:
+  - id: mounting_bracket
+    name: 电机支架（多基准面 + 加强筋 + 出图）
+    capabilities: [part.extrude, part.cut_blind, part.fillet, export.png, drawing.create]
+    required_inputs: [底板尺寸, 立板尺寸, 孔规格, 加强筋厚, 材料]
+    required_artifacts: [sldprt, preview, review_report]
+    real_acceptance_2022:
+      volume_mm3: 368731.4
+      volume_dev_pct: -0.32
+      solids: 1
+      views_md5_distinct: 4
+      subskill: null
+
+  - id: spur_gear_pair
+    name: 渐开线带轮/齿轮对
+    capabilities: [gear.involute, gear.full_ring, sketch.spline, part.extrude]
+    required_inputs: [模数, 齿数, 齿宽, 轴孔, 减重孔]
+    required_artifacts: [sldprt, geometry_evidence, review_report]
+    real_acceptance_2022:
+      z20:
+        points: 2301
+        volume_mm3: 8202.7
+        dev_pct: -1.657
+        r_min: 14.0
+        r_max: 17.6
+      z40:
+        points: 4601
+        volume_mm3: 43829.5
+        dev_pct: -0.418
+        r_min: 30.0
+        r_max: 33.6
+      subskill: solidworks-gears
+
+  - id: belt_actuator_assembly
+    name: 14 件同步带直线模组装配
+    capabilities: [asm.insert, asm.place, asm.fix, asm.mate.concentric,
+                   asm.mate.distance, asm.mate.coincident, export.step, drawing.create]
+    required_inputs: [零件清单, 装配基准, 配合关系, 允许自由度, 布局坐标]
+    required_artifacts: [sldprt, sldasm, step, preview, drawing_pdf, review_report]
+    real_acceptance_2022:
+      parts: 14
+      components: 15
+      mates: 10
+      mate_concentric: 3
+      mate_distance: 5
+      mate_coincident: 2
+      max_drift_mm: 0.00
+      interference: none
+      step_bytes: 4719653
+      pdf_bytes: 13031
+      views_md5_distinct: 4
+      all_part_volume_dev_pct: 0.000
+      subskill: solidworks-assembly
+
+  - id: sheetmetal_bracket
+    name: 钣金电机安装板
+    capabilities: [part.sheetmetal_base_flange, part.extrude, part.cut_through, props.custom]
+    required_inputs: [板厚, 折弯半径, 折弯边长, 孔规格, 材料]
+    required_artifacts: [sldprt, geometry_evidence, review_report]
+    real_acceptance_2022:
+      volume_mm3: 38550.8
+      dev_pct: 0.000
+      thickness_mm: 3.0
+      bend_radius_mm: 2.0
+      solids: 1
+      subskill: solidworks-sheetmetal-weldment
+
+  - id: weldment_frame
+    name: 角钢焊件机架
+    capabilities: [weldment.structural, weldment.cut_list, part.extrude]
+    required_inputs: [型材规格, 框架尺寸, 角钢配置, 切割清单要求]
+    required_artifacts: [sldprt, geometry_evidence, review_report]
+    real_acceptance_2022:
+      volume_mm3: 260848.9
+      profile_config: "Al LS ANGLE SQR END 1 x 0.75 x 0.125"
+      solids: 4
+      cut_list_items: 2
+      note: "切割清单生成条件与型材总长有关，200x120 小框为 0 项，维持 pilot"
+      subskill: solidworks-sheetmetal-weldment
+
+  - id: drawing_delivery
+    name: 工程图与四视图交付
+    capabilities: [drawing.create, drawing.view_count, drawing.standards_check,
+                   drawing.annotations, export.png, export.step]
+    required_inputs: [图幅, 视图列表, 中文视图名, 输出格式]
+    required_artifacts: [slddrw, pdf, preview, review_report]
+    real_acceptance_2022:
+      views: 4
+      drawing_views: 3
+      view_names_must_be_chinese: true
+      md5_distinct: 4
+      pdf_bytes: 14759
+      pdf_bytes_without_annotations: 7130
+      slddrw_bytes: 340026
+      getviewcount_offset: 1
+      getviewcount_rule: "GetViewCount() 含 Sheet1，3 视图返回 4"
+      annotations_types_required: 32768
+      annotations_added: 1
+      annotations_level: verified
+      annotations_rule: "types 必须含 32768；同一图纸重复调用不再增加，比较参数须每次新建图纸"
+      sheet_size_mm: [279.4, 215.9]
+      sheet_size_api: "ISheet.GetSize(Width, Height) 两个 by-ref 出参"
+      hole_table: not_implemented
+      hole_table_evidence: "51 组合全 None，已排除选择集问题"
+      manual_checks: 4
+      manual_ids: [dim_chain, hole_table, title_block, no_overlap]
+      subskill: solidworks-engineering-drawing
+
+  - id: mesh_reference_import
+    name: 网格参考件导入
+    capabilities: [import.mesh, import.mesh_precheck]
+    required_inputs: [网格文件, 期望 bbox, 导入模式]
+    required_artifacts: [sldprt, bbox_evidence, review_report]
+    real_acceptance_2022:
+      stl_box_mm: [20, 30, 40]
+      stl_bbox_dev_mm: 0.000
+      obj_box_mm: [12, 8, 6]
+      obj_bbox_dev_mm: 0.000
+      mesh_bodies: 1
+      getbodies2_visible: false
+      loadfile4_owner: ISldWorks
+      loadfile4_arg3: "空 IDispatch VARIANT，不能 None"
+      precheck_bad_normals_rejected: true
+      arg_modes: ["r", "s", ""]
+      arg_modes_bbox_identical: true
+      fake_params_removed: [doc_type, allow_solid]
+      parametric: false
+      assertions: 17
+      note: "网格件无草图/特征树，不能拉伸切除、不能加配合；pilot"
+      subskill: null
+
+  - id: motion_study
+    name: 运动算例创建与计算
+    capabilities: [motion.study, motion.results, motion.framerate]
+    required_inputs: [装配体, 算例名称, 计算要求]
+    required_artifacts: [sldasm, motion_evidence, review_report]
+    real_acceptance_2022:
+      studies_after: 2
+      calculate_ok: true
+      motion_results: pilot
+      framerate: not_available
+      note: "只验证建算例+计算；结果读取与帧率仍是 pilot / 接口不可用"
+      subskill: null
+
+  - id: capability_gate_drill
+    name: 能力缺口与假成功拦截
+    capabilities: []
+    infrastructure: [capability_gap, artifact_freshness, exec_trace, verify_gate]
+    required_inputs: [请求能力, 交付文件清单, 执行前基线]
+    required_artifacts: [gap_json, freshness_report, trace_json, gate_report]
+    real_acceptance_2022:
+      freshness_assertions: 11
+      gap_assertions: 12
+      trace_assertions: 10
+      doc_consistency_assertions: 15
+      golden_assertions: 14
+      assembly_contract_assertions: 11
+      injection_assertions: 8
+      key_cases:
+        - 只改 mtime 不算新
+        - 新文件不能掩盖旧文件
+        - 几何 PASS + 新鲜度 FAIL -> 整体 FAIL
+        - 每个 pilot 都有替代方案
+        - 失败 step 记录 fail_at
+        - 文档等级不能落后于 capabilities.yaml
+        - golden 声明的能力必须已登记
+        - (None,None) 干涉结果判 unknown 不判 pass
+        - 旋转件 bbox 增大 -> place_to 必偏 -> 必须用 place_center_to
+        - 每条新断言都用注入错误验证过能抓错
+      subskill: null
+
+  - id: planetary_reducer_audit
+    name: 行星减速器独立审查（判据失效复现）
+    capabilities: [asm.place, asm.place_center, asm.mate.concentric,
+                   asm.interference_verdict, asm.fix, part.extrude, part.revolve,
+                   gear.involute, gear.full_ring, gear.planetary_check]
+    required_inputs: [齿轮参数, 装配布局, 期望圆心, 理论体积基准]
+    required_artifacts: [audit_md, audit_raw_json, assembly_contract_suite]
+    real_acceptance_2022:
+      case: "GR-90 单级行星减速器 m1.5 zs18/zp27/zr72，13 组件 / 10 配合"
+      # ---- 被审查模型的实际缺陷（作为反例基线，不是"通过"数值）
+      planet1_center_r_mm: 33.714
+      planet2_center_r_mm: 38.290
+      planet3_center_r_mm: 23.045
+      expected_center_r_mm: 33.750
+      planet2_radial_error_mm: 4.540
+      planet3_radial_error_mm: 10.705
+      planet3_sun_penetration_mm: 10.330
+      planet2_ring_penetration_mm: 4.165
+      # ---- 三条失效判据的实测表现
+      interference_none_none_params_tried: 8
+      interference_returns_none_even_with_penetration: true
+      mates_counted: 10
+      mates_actually_violated: 2
+      violated_mate_actual_distance_mm: [11.347, 11.295]
+      max_drift_mm: 0.0
+      max_drift_is_vacuous_when_fix_all_first: true
+      # ---- 存盘固化
+      ring_volume_open_mm3: 25413.481
+      ring_volume_after_rebuild_mm3: 25427.356
+      rebuild_delta_mm3: 13.876
+      # ---- 零件层实际全部合格（这部分是通过项）
+      parts_all_volume_dev_under_pct: 0.043
+      parts_bodies_all_one: true
+      subskill: solidworks-assembly
+      note: "本 workflow 记录「判据失效」的反例数值，用于回归断言；行星轮位置错误属个案（C 类），skill 只固化判据缺陷（A 类）"
+
+# 不收录的工作流（诚实边界）：
+# - autocad_cleanup_delivery: 本机未安装 AutoCAD
+# - multi_version_matrix: 本机只有 SW2022，跨版本结论不编造
+# - fea_solver: 另一个定位，需要外部求解器
+# - gdtnative: SW2026 pilot，本机无证据

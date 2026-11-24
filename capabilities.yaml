@@ -1,0 +1,971 @@
+schema_version: "1.0"
+
+# 单一真相源：能力等级、限制、依赖、版本、允许模式都在这里。
+# swlib_v2.CAPABILITIES 从本文件加载；文档数字从本文件统计。
+# 绝不手写"38 verified"这类会过期的数字。
+
+verified_versions:
+  solidworks: ["2022 SP5 (30.5.0.0049)"]
+  python: ["3.12.4", "3.13 (早绑定缓存路径随版本变化)"]
+
+backend_catalog:
+  solidworks-com-pywin32:
+    language: Python
+    runtime: out_of_process_automation
+    suitable_for:
+      - 本机 SW2022 原生 SLDPRT/SLDASM/SLDDRW
+      - 显式构造 VARIANT/SAFEARRAY 的参数
+      - 体积/bbox/特征树三重断言
+    limitations:
+      - 依赖 Windows COM，跨平台不可用
+      - 接口归属和参数顺序必须查本机类型库，不照抄 SW2024/2026 结论
+
+operation_routes:
+  - id: solidworks_native_modeling
+    label: 本机 SW2022 原生建模
+    candidates:
+      - backend: solidworks-com-pywin32
+        semantics: exact_automation
+        priority: 10
+    review_required: true
+
+capabilities:
+  # ============================================================ verified
+  - id: part.extrude
+    label: 拉伸凸台
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 草图必须先选中（FeatureExtrusion3 返回 None 的头号原因）
+      - 用 V.extrude_checked，内部 5 级选草图回退
+    evidence: "P1 4800000 -> dev 0.0000%"
+    allowed_modes: [interactive, reviewed]
+
+  - id: part.cut_through
+    label: 贯穿切除
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - Sd=False + T1=T2=ThroughAll 才是双向贯穿
+      - reverse=True 走 Dir=False（负法向），不是 Flip（切外侧）
+    evidence: "P2 轴承孔 22 精确"
+    allowed_modes: [interactive, reviewed]
+
+  - id: part.cut_blind
+    label: 盲孔切除
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - StartOffset 本机无效，盲孔起点由草图平面决定
+      - 深度方向需实测确认（probe_dirsem.py）
+    evidence: "P1 4xØ5.5 深 15 Δ1425.5"
+    allowed_modes: [interactive, reviewed]
+
+  - id: sketch.arc
+    label: 草图圆弧
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - CreateArc2 参数单位是【米】，swlib.line 内部已乘 MM，手写要 ×0.001
+    evidence: "P8 跑道形 1111mm，端点坐标验证"
+    allowed_modes: [interactive, reviewed]
+
+  - id: sketch.spline
+    label: 草图样条
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 连续点距 <1e-5 会退化为退化曲线被静默丢弃，先去重
+    evidence: "P3/P4 整环 2301/4601 点闭合"
+    allowed_modes: [interactive, reviewed]
+
+  - id: pattern.circular
+    label: 圆周阵列
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 母特征必须传切除特征名（类型名 ICE），传草图名返回 None
+      - 轴必须垂直于「孔心↔中心」连线，否则体积反增
+      - count=N 新增 N-1 孔（母特征算第 1 个）
+    evidence: "count=2/4/6 新增 1/3/5 孔，体积精确"
+    allowed_modes: [interactive, reviewed]
+
+  - id: part.fillet
+    label: 圆角
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - SW2022 是 7 参（GitHub 4 参是 SW2024+）
+      - 多条边必须 append 逐次递增，否则只倒最后一条
+    evidence: "P1 4 外棱 R2 dev 0.0000%"
+    allowed_modes: [interactive, reviewed]
+
+  - id: part.chamfer
+    label: 倒角
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 同 fillet，多条边 append 必须递增
+    evidence: "P2 外缘 C1"
+    allowed_modes: [interactive, reviewed]
+
+  - id: part.revolve
+    label: 旋转
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 中心线必须沿草图 Y；轮廓「X=半径、Y=轴线」
+      - 画在 X 方向会绕错轴，体积偏差可达 768%
+    evidence: "P12 dev 0.0000%"
+    allowed_modes: [interactive, reviewed]
+
+  - id: part.loft
+    label: 放样
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 截面必须平行（垂直平面返回 None），用 offset_plane
+      - 逐张 Select2(mark=1)，不用 MultiSelect2
+    evidence: "P10 r25->r15 dev 0.0000%"
+    allowed_modes: [interactive, reviewed]
+
+  - id: part.sweep
+    label: 扫描
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 轮廓圆心必须精确重合路径起点
+      - 轮廓平面垂直于路径起点切线
+      - 路径线段 mark=4 逐段 append
+    evidence: "P8 闭环 1111mm dev -0.02%"
+    allowed_modes: [interactive, reviewed]
+
+  - id: part.shell
+    label: 抽壳
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 面必须 IFace2→IEntity.Select4(mark=1)
+      - 所有诊断在选面【之前】做完，否则清空选择集
+      - 旋转体端面抽壳会被 SW 拒绝，方块才行
+    evidence: "P1 双端抽壳 4800000->1920000"
+    allowed_modes: [interactive, reviewed]
+
+  - id: ref.offset_plane
+    label: 偏移基准面
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - offset_plane 返回 CDispatch，不能直接当名字，用 offset_plane_named
+    evidence: "P10 基准面1 @60mm"
+    allowed_modes: [interactive, reviewed]
+
+  - id: part.mirror
+    label: 镜像
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 特征 mark=1、面 mark=2（旧文档写 4/1 是错的）
+    evidence: "Δ=-4000.00 精确"
+    allowed_modes: [interactive, reviewed]
+
+  - id: part.draft_equiv
+    label: 拔模（等效法）
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 原生 InsertFeatureDraft2 外部 COM 不可靠，用梯形/圆台等效
+    evidence: "圆台 dev 0.0000%，棱柱 dev -0.07%"
+    allowed_modes: [interactive, reviewed]
+
+  - id: part.sheetmetal_base_flange
+    label: 钣金基体法兰
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 必须走 FeatureData 路线，长参数接口已废弃
+    evidence: "P9 vol=32400 dev 0.0000%"
+    allowed_modes: [interactive, reviewed]
+
+  - id: surface.extrude
+    label: 拉伸曲面
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 返回值是 void，判据用 body_counts
+    evidence: "P11 solid=0 sheet=1"
+    allowed_modes: [interactive, reviewed]
+
+  - id: surface.planar
+    label: 平面区域曲面
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 在 IModelDoc2 上，不是 IFeatureManager
+    evidence: "P11 sheet 1->2"
+    allowed_modes: [interactive, reviewed]
+
+  - id: surface.revolve
+    label: 旋转曲面
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations: []
+    evidence: "solid=0 sheet=1"
+    allowed_modes: [interactive, reviewed]
+
+  - id: weldment.structural
+    label: 结构件焊件
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, 型材库]
+    limitations:
+      - 三件套缺一不可（InsertWeldmentFeature + group + Groups SAFEARRAY）
+      - 默认配置是 6 英寸，必须显式指定 config
+    evidence: "P14 4 实体 + 体积精确"
+    allowed_modes: [interactive, reviewed]
+
+  - id: motion.study
+    label: 运动算例
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks Motion 加载项]
+    limitations:
+      - 只验证建算例+计算，不含马达/接触/受力
+    evidence: "2 个算例，计算成功"
+    allowed_modes: [interactive, reviewed]
+
+  - id: props.custom
+    label: 自定义属性
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - ICustomPropertyManager.Get6 值在索引 1，不是 0
+    evidence: "14 件每件 4 条回读"
+    allowed_modes: [interactive, reviewed]
+
+  - id: config.create
+    label: 配置创建
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - AddConfiguration3 在 IModelDoc2 上，不在 ConfigurationManager
+    evidence: "P9 BENT 配置"
+    allowed_modes: [interactive, reviewed]
+
+  - id: material.set
+    label: 材料设置
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 本机只有 6063-T5 / AISI 304 / AISI 1020 / ABS
+      - 回读比较 GetMaterialPropertyName2 的 [0]
+    evidence: "14 件材料回读"
+    allowed_modes: [interactive, reviewed]
+
+  - id: asm.insert
+    label: 插入组件
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations: []
+    evidence: "15/15 组件"
+    allowed_modes: [interactive, reviewed]
+
+  - id: asm.place
+    label: 摆位
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - V.place 设组件原点，非对称件用 place_to 迭代 bbox
+      - ★★ place_to 对齐的是 bbox【角】，不是圆心：非正方形轮廓绕自身原点旋转后 bbox 会变大（实测 43.5→59.50，解析式 d·(|cosθ|+|sinθ|)），仍按未旋转尺寸偏移必然偏（实测圆心偏 4.54/10.71mm，而 place_to 报 dev≤0.05mm）
+      - ★★ 旋转件 / 同心件 / 齿轮必须用 place_center_to(sw, comp, R, target_center)，按【旋转后 bbox 中心】对齐；非对称齿形再给 check_center=axial_center_of 回调
+      - ★ 摆位验收不能只看 bbox：要用 axial_center_of 或 Transform2 平移量验圆心（±0.05mm）
+    evidence: "13 组件摆位 dev≤0.005mm（bbox 角），但旋转件圆心偏 4.54/10.71mm"
+    allowed_modes: [interactive, reviewed]
+
+  - id: asm.fix
+    label: 固定组件
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - SetSuppression2(0) 不是固定；FixComponent 需先选中
+      - 判据用 IsFixed，FixComponent 恒返回 None
+    evidence: "15/15 固定"
+    allowed_modes: [interactive, reviewed]
+
+  - id: asm.mate.concentric
+    label: 同心配合
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 必须 fix_all 后再加，否则零件被拉散
+      - ★★ 但【全固定后加的配合不参与求解】：无自由度可约束，配合被记录但不起作用。实测 10 条配合里 2 条（planet-2/3↔pin-2/3）count_mates 增量 +1、AddMate5 err=5，两件实际相距 11.35/11.30mm。正确顺序是「只固定基准件 → 加配合 → 求解定位 → 再全部 fix_all」
+      - ★ count_mates 只证明「配合被记录」，不证明「配合在约束」；必须补几何验证（axial_center_of 测轴心距 <0.05mm）
+    evidence: "3 组同心，漂移 0.00（fix_all 先行时漂移恒 0，不构成装配正确证据）"
+    allowed_modes: [interactive, reviewed]
+
+  - id: asm.mate.distance
+    label: 距离配合
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 距离值必须等于摆放时真实间隙，否则求解器拉走零件
+    evidence: "距离 12.5 实测漂移 0.00"
+    allowed_modes: [interactive, reviewed]
+
+  - id: asm.mate.coincident
+    label: 重合配合
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations: []
+    evidence: "2 组重合"
+    allowed_modes: [interactive, reviewed]
+
+  - id: asm.mate.surface_body
+    label: 曲面体配合
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 曲面件 GetBody 返回 None，用组件基准面配合
+    evidence: "P11 护罩配合"
+    allowed_modes: [interactive, reviewed]
+
+  - id: asm.mate.plane_coincident
+    label: 平面重合配合
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 不固定组件时会移动零件，必须先 fix_all
+      - ★ 与 asm.mate.concentric 同一顺序悖论：全固定后加的平面重合同样不参与求解
+    evidence: "fix_all 后漂移恒 0.00mm（注意：该流程下漂移恒 0，不构成装配正确证据）"
+    allowed_modes: [interactive, reviewed]
+
+  - id: asm.interference_verdict
+    label: 干涉检查三态判定
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, test_assembly_contract.py]
+    limitations:
+      - ★★ ToolsCheckInterference2 对【全固定组件】装配体，即使存在 10.33mm 实体穿入，8 组参数（num 0~3 × useSel True/False）全部返回 (None, None)
+      - ★★ (None, None) 语义歧义：既表示「无干涉」也表示「检查未执行」，两者不可区分。旧 interference_ok 把 (None,None) 判 True，判据彻底失效
+      - 现 interference_verdict 返回 clean / interference / unknown 三态，unknown 判 BLOCKED（无法验证≠通过）
+      - unfix_first=True 可临时解除固定再查（会改动装配状态，调用方需知情）
+      - 干涉检查不能当唯一判据；齿轮/回转件须补几何解析断言（中心距 / 径向穿入深度）
+    evidence: "穿入 10.33mm 仍返回 (None,None)；三态判定已固化进 test_assembly_contract.py"
+    allowed_modes: [interactive, reviewed]
+
+  - id: asm.place_center
+    label: 按圆心摆位（旋转件）
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, test_assembly_contract.py]
+    limitations:
+      - ★★ place_to 对齐 bbox 角，旋转的非正方形件必偏；本能力按【旋转后 bbox 中心】对齐
+      - 非对称齿形（bbox 中心 ≠ 真实圆心）须给 check_center 回调，用 axial_center_of 反推轴心
+      - axial_center_of 依赖 IComponent2.Transform2 与 IFace2.GetBox（面 box 是零件局部坐标，需叠加变换）
+      - 摆位后仍须独立验圆心（±0.05mm），不能只信返回值
+    evidence: "解析式 d·(|cosθ|+|sinθ|)：43.5→59.50 与 SW 实测 59.503 一致到 0.05mm；修复后圆心可对齐到 ±0.02mm"
+    allowed_modes: [interactive, reviewed]
+
+  - id: appearance.component
+    label: 组件级上色
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 9 元素数组 + VARIANT(VT_ARRAY|VT_R8)
+    evidence: "15 组件上色"
+    allowed_modes: [interactive, reviewed]
+
+  - id: export.step
+    label: STEP 导出
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations: []
+    evidence: "4.72 MB 回读"
+    allowed_modes: [interactive, reviewed]
+
+  - id: export.png
+    label: PNG 四视图
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 装配体用 ViewZoomtofit2 + ViewZoomout（Zoomin 会裁切）
+      - 比 md5 不比文件大小
+    evidence: "4 张 md5 互异"
+    allowed_modes: [interactive, reviewed]
+
+  - id: drawing.create
+    label: 工程图
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, 中文模板 gb.drwdot]
+    limitations:
+      - 中文视图名 *等轴测/*前视，英文名恒 False（pitfalls S9）
+      - CreateDrawViewFromModelView3 在 IDrawingDoc 上
+      - 只出视图 + PDF；尺寸链/孔表/标题栏字段填充未实现（见 drawing-standards.md）
+      - GetViewCount 含 Sheet1，判据要用「视图数+1」
+      - 自动标注本轮增量常为 0（模型无驱动尺寸时），须回读 GetAnnotationCount
+    evidence: "3 视图 PDF 7130 B / views_made=3 / GetViewCount=4"
+    allowed_modes: [interactive, reviewed]
+
+  - id: gear.involute
+    label: 渐开线齿轮
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, gearmath.py, gearring.py]
+    limitations:
+      - 等效渐开线，非真 5M 圆弧齿
+      - 中心孔必须与齿廓同草图一次拉伸
+    evidence: "z20 2301 点 / z40 4601 点"
+    allowed_modes: [interactive, reviewed]
+
+  - id: gear.full_ring
+    label: 齿轮整环
+    level: verified
+    backends: [local-python]
+    verified_versions: ["2022 SP5"]
+    dependencies: [gearmath.py, gearring.py]
+    limitations: []
+    evidence: "r_min=rf r_max=ra"
+    allowed_modes: [interactive, reviewed]
+
+  - id: gear.harmonic_profile
+    label: 谐波齿廓校核
+    level: verified
+    backends: [local-python]
+    verified_versions: ["2022 SP5"]
+    dependencies: [check_harmonic.py, assets/harmonic_profiles.json, numpy, shapely]
+    limitations:
+      - 只做**数据验收**，不重新推导齿廓（数据源 ctp-revB.js / Yao et al. 2025）
+      - 自交检查只抽查前 4000 点（完整 6600 段是 O(n²)），完整图形靠目视
+      - shapely 缺失时自交检查会抛，其余检查不受影响
+      - 不涉及 SW 建模；要出实体仍需走 gear.involute / gear.full_ring
+    evidence: "椭圆偏差 0.00e+00 / 传动比 100.0 精确 / 啮合 29 齿 14.5% / backlash 0.0164mm"
+    allowed_modes: [interactive, reviewed]
+
+  - id: gear.planetary_check
+    label: 行星轮系校核
+    level: verified
+    backends: [local-python]
+    verified_versions: ["2022 SP5"]
+    dependencies: [verify_all.py, gearmath.py]
+    limitations:
+      - 只做**解析几何与理论体积**校核（给 SW 实测提供独立基准），不建实体
+      - 齿廓用 gearmath 的多边形近似，不是 CNC 级精确齿形
+      - 旧版只打印不断言（数值错了也退出 0）；2026-11-22 已加真断言
+      - 侧隙只输出供参考，不作为 pass/fail 条件
+    evidence: "zr=zs+2zp / i=5.0 / 装配(30%3=0) / 邻接 58.4567>43.5 / 4 个正体积 + 中心距"
+    allowed_modes: [interactive, reviewed]
+
+  # ============================================================ 2026-11-21 新增
+  # 对标 wzyn20051216/solidworks-automation-skill（2230★）的 6 个缺口补全。
+  # 等级按本机实测证据定，绝不因为"对标工具有"就标 verified。
+
+  - id: review.run
+    label: 结果自审查（四视图+像素判据）
+    level: verified
+    backends: [local-python, solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [review.py, Pillow, numpy, swlib_v2.py]
+    limitations:
+      - 预览非空白 ≠ 模型正确；比例/方位/部件缺失/重叠悬空仍须人眼复核
+      - 像素判据只排除空白图/同图/裁切，不判断几何是否可制造
+      - 内容占比下限 1%、色数下限 6 是本机 1290x683 渲染实测值
+      - 背景色取出现最多的量化色，不假定纯白（本机背景是浅灰渐变）
+    evidence: "圆柱 4 视图 md5 互异 / 内容 5.6~24.2% / 色数 36~39 / status=pass"
+    allowed_modes: [interactive, reviewed]
+
+  - id: review.image_stats
+    label: 像素统计（内容占比/色数/贴边）
+    level: verified
+    backends: [local-python]
+    verified_versions: ["2022 SP5"]
+    dependencies: [review.py, Pillow, numpy]
+    limitations:
+      - 色数必须在原始分辨率上数，缩小图会把硬边插值成过渡色
+      - 贴边判定阈值 1%，只提示不阻断（WARN）
+    evidence: "空白图 content 0.000→FAIL / 单色块 colors=6→WARN / 贴边四边全检出"
+    allowed_modes: [interactive, reviewed]
+
+  - id: appearance.verify_readback
+    label: 设色后回读校验
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, swlib_v2.py]
+    limitations:
+      - GetMaterialPropertyValues2 返回 8bit 量化值，偏差恒约 0.002，tol 不能小于 0.01
+      - 未设过色时回读 (-1,-1,-1) 哨兵，语义是"继承零件外观"
+      - 只覆盖组件级；零件级 set_color 已有独立回读
+    evidence: "设 (0.92,0.72,0.30) 回读 (0.918,0.718,0.298) dev=0.0024；tol=1e-9 正确抛"
+    allowed_modes: [interactive, reviewed]
+
+  - id: appearance.palette
+    label: 批量上色+批量回读
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, swlib_v2.py]
+    limitations:
+      - strict=True 时首项失败即抛，后续不再尝试
+      - 键必须与 comps() 返回的实例名一致
+    evidence: "2 组件批量上色，applied=2 failed=0，全部回读命中"
+    allowed_modes: [interactive, reviewed]
+
+  - id: com.byref_out
+    label: by-ref 出参（VARIANT）
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [pywin32, swlib.py]
+    limitations:
+      - 早绑定 _ApplyTypes_ 不接受 VARIANT 形式 by-ref，会 TypeError
+      - 取真实出参必须降级动态绑定（swlib.as_dynamic / call_byref）
+      - 早绑定只能拿返回元组里的出参，且入参要传普通 0
+    evidence: "SaveAs4 合法路径 err=0；非法路径 err=1；非法扩展名 err=256"
+    allowed_modes: [interactive, reviewed]
+
+  - id: drawing.view_count
+    label: 工程图视图计数/枚举
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, swlib_v2.py]
+    limitations:
+      - GetViewCount() 把 Sheet1 也算一项（3 视图返回 4）
+      - GetViews() 返回嵌套元组，必须展平后按 GetName2 过滤掉 Sheet1
+    evidence: "3 视图 → GetViewCount=4；展平 4 项 [Sheet1, 视图1, 视图2, 视图3]"
+    allowed_modes: [interactive, reviewed]
+
+  - id: drawing.sheet_size
+    label: 图纸幅面读取
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, swlib_v2.py, swlib.py]
+    limitations:
+      - 必须用 ISheet.GetSize(Width, Height) 两个 by-ref 出参
+      - GetProperties 返回 7 项，真幅面在索引 5/6，按位置取 0/1 会得到 0×13000mm 荒谬值
+      - 返回单位是米，封装已换 mm
+      - 读不到时返回 None 字段而不抛异常（出图不该因读幅面失败中断）
+    evidence: "GetSize → 279.4 × 215.9 mm（11.00 × 8.50 in = Letter）"
+    allowed_modes: [interactive, reviewed]
+
+  - id: import.mesh
+    label: 网格导入（STL/OBJ 参考件）
+    level: pilot
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, mesh_import.py]
+    limitations:
+      - 网格件不是参数化实体：无草图/特征树，不能拉伸切除、不能加配合当机构件
+      - GetBodies2() 看不到网格体（返回 None），必须走 MeshBodyFeature.GetSpecificFeature2
+      - LoadFile4 第 3 参不能传 None，必须传空 IDispatch VARIANT
+      - GLB/GLTF/FBX 需先转 OBJ/STL（SW2022 无 glTF 导入器）
+      - 0 法线 STL 会让 SW 弹模态框并把 COM 永久挂死，必须预检
+      - 体积恒 0，不能用 volume_check 判据
+    evidence: "STL 20x30x40 bbox 偏差 0.000mm / mesh_bodies=1 / OBJ 12x8x6 同样精确"
+    allowed_modes: [interactive, reviewed]
+
+  - id: import.mesh_precheck
+    label: STL 法线预检/修复
+    level: verified
+    backends: [local-python]
+    verified_versions: ["2022 SP5"]
+    dependencies: [mesh_import.py]
+    limitations:
+      - 只查 STL（ASCII/二进制），OBJ 跳过
+      - 阈值 2%：坏法线面占比超过就拒绝导入
+      - repair 按体心朝外纠正绕向，凹形件的"朝外"可能判错
+    evidence: "12/12 坏法线 → 拒绝；修复后预检通过；二进制 STL 684B/12 面"
+    allowed_modes: [interactive, reviewed]
+
+  # ============================================================ pilot
+  - id: drawing.annotations
+    label: 工程图自动标注
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, swlib_v2.py]
+    limitations:
+      - InsertModelAnnotations3 是 6 参（旧文档写 4 参是错的）
+      - ★ 只要 types 含 32768（swInsertDimensionsMarkedForDrawing）位就成功；不含的一律 0 条
+      - ★★ 同一张图纸重复调用不会再加标注，比较不同 types 必须每次新建图纸
+      - rc 不可信：rc=False 也可能插进去，rc=True 也可能 0 条 → 必须回读增量
+      - 模型必须已在会话里打开并激活
+      - 只插"模型已有的驱动尺寸"，无驱动尺寸的模型恒 0 条
+      - 尺寸链完整度仍需人判（自动标注≠尺寸链）
+    evidence: "9 组 types 每组新图纸：含 32768 全部 +1；8/524288 单独 0 条"
+    allowed_modes: [interactive, reviewed]
+
+  - id: drawing.standards_check
+    label: 工程图底线检查（机器判部分）
+    level: verified
+    backends: [local-python, solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [drawing_delivery.py, swlib_v2.py]
+    limitations:
+      - 只判视图数/PDF 字节/标注增量三项
+      - 尺寸链/孔表/标题栏/压线四项显式标 manual，绝不默认 pass
+      - PDF 阈值 5KB 来自 3 视图无标注实测 7130 B
+    evidence: "4 项人判全部 manual / status 聚合 pass-warn-fail 正确"
+    allowed_modes: [interactive, reviewed]
+
+  - id: part.hole_wizard
+    label: 孔向导
+    level: pilot
+    backends: [solidworks-com-pywin32]
+    verified_versions: []
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 4 轮实测全部返回 None（Standard 0-5 / Fastener 0-3 / 6 种 SSize）
+      - 用 part.cut_through / part.cut_blind 替代
+    evidence: "官方 VBA 复刻失败"
+    allowed_modes: [interactive]
+
+  - id: weldment.cut_list
+    label: 焊件切割清单
+    level: pilot
+    backends: [solidworks-com-pywin32]
+    verified_versions: []
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 生成条件与型材总长有关：700x300 有 2 项，200x120 为 0 项
+      - 读 CutListFolder，不是 InsertWeldmentCutList2
+    evidence: "P14 2 项 / 小框 0 项"
+    allowed_modes: [interactive]
+
+  - id: motion.results
+    label: 运动结果读取
+    level: pilot
+    backends: [solidworks-com-pywin32]
+    verified_versions: []
+    dependencies: [SolidWorks Motion]
+    limitations: []
+    evidence: "未单独实测"
+    allowed_modes: [reviewed]
+
+  - id: motion.avi
+    label: 运动 AVI 导出
+    level: pilot
+    backends: [solidworks-com-pywin32]
+    verified_versions: []
+    dependencies: [SolidWorks Motion, 编解码器]
+    limitations: []
+    evidence: "未实测"
+    allowed_modes: [reviewed]
+
+  - id: motion.framerate
+    label: 运动帧率
+    level: pilot
+    backends: []
+    verified_versions: []
+    dependencies: []
+    limitations:
+      - IMotionStudyProperties 取不到，本机接口限制
+    evidence: "接口不可用"
+    allowed_modes: [reviewed]
+
+  - id: asm.mate.axis_concentric
+    label: 轴同心配合
+    level: pilot
+    backends: [solidworks-com-pywin32]
+    verified_versions: []
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 本机实测不建配合，改用面同心或基准面重合
+    evidence: "未建成"
+    allowed_modes: [interactive]
+
+  - id: appearance.render
+    label: PhotoView 渲染
+    level: pilot
+    backends: [solidworks-com-pywin32]
+    verified_versions: []
+    dependencies: [PhotoView 360]
+    limitations:
+      - 需补光；像素统计验收
+    evidence: "未实测"
+    allowed_modes: [reviewed]
+
+  - id: export.stl
+    label: STL 导出
+    level: pilot
+    backends: []
+    verified_versions: []
+    dependencies: []
+    limitations:
+      - COM 导 0 字节
+      - 用 STEP 再外部转
+    evidence: "0 字节"
+    allowed_modes: [interactive]
+
+  - id: drawing.section
+    label: 剖视图
+    level: pilot
+    backends: [solidworks-com-pywin32]
+    verified_versions: []
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 已封装但未端到端实测
+    evidence: "未实测"
+    allowed_modes: [reviewed]
+
+  - id: bom.table_insert
+    label: BOM 插表
+    level: pilot
+    backends: [solidworks-com-pywin32]
+    verified_versions: []
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 数据能取，表格位置不可控
+    evidence: "未实测"
+    allowed_modes: [reviewed]
+
+  # ============================================================ not_implemented
+  - id: drawing.hole_table
+    label: 孔表/槽表
+    level: not_implemented
+    backends: []
+    verified_versions: []
+    dependencies: []
+    limitations:
+      - InsertHoleTable3(9参) / InsertHoleTable2(6参) / InsertHoleTable(5参) / InsertTableAnnotation2(7参) 全部返回 None
+      - 51 种参数组合实测：3 个 .sldholtbt 模板 × anchor 0~3 × tagorder 0~1 × tagtype 0~2 × 5 组坐标
+      - 已排除选择集问题：SelectByID 选中成功（sel=1）、GetSelectedObjectsDrawingView2 拿到视图对象
+      - 与 ThickenSheet 同类：接口层不可用，不是用法问题
+      - 变通：孔规格/数量写进自定义属性（props.custom 已验证）+ 交付附 CSV
+    evidence: "51/51 组合返回 None，标注总数恒 0"
+    allowed_modes: []
+
+  - id: drawing.title_block_fill
+    label: 标题栏字段填充
+    level: not_implemented
+    backends: []
+    verified_versions: []
+    dependencies: []
+    limitations:
+      - gb.drwdot 模板自带框线，但字段（件号/材料/比例）未自动填充
+      - 只能靠自定义属性 + 手工编辑图纸格式
+    evidence: "未实现"
+    allowed_modes: []
+
+  - id: surface.thicken
+    label: 曲面加厚
+    level: not_implemented
+    backends: []
+    verified_versions: []
+    dependencies: []
+    limitations:
+      - ThickenSheet 恒返回 None（所有调用方式已验证）
+      - 用实体拉伸或抽壳替代
+    evidence: "恒 None"
+    allowed_modes: []
+
+  - id: appearance.display_color
+    label: API 显示上色
+    level: not_implemented
+    backends: []
+    verified_versions: []
+    dependencies: []
+    limitations:
+      - GetDisplayStateSetting 一律抛 -2147417851
+      - 用 set_material / set_component_color 替代
+    evidence: "异常"
+    allowed_modes: []
+
+  - id: export.sldprt_to_web
+    label: 网页格式导出
+    level: not_implemented
+    backends: []
+    verified_versions: []
+    dependencies: []
+    limitations:
+      - 需转 glTF，当前未实现
+      - 用 STEP 再外部转
+    evidence: "未实现"
+    allowed_modes: []
+
+  # ============================================================ 2026-11-22 GR-90 行星减速器实战
+  # 9 种零件 / 13 组件 / 10 配合 / 6 件 dev 0.0000% / 交付门禁 4/4 PASS
+  # 案例目录 <project-dir>/planetary_reducer_v2，新坑见 references/pitfalls.md U 章
+
+  - id: drawing.sheet_format_draw
+    label: 自绘图框+标题栏格线
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, swlib.py]
+    limitations:
+      - 本机 gb.drwdot 的图纸格式为空（GetSheetFormatName 返回 ''）
+      - SetupSheet4(TemplateName=slddrt) 返回 True 但不生效；ReloadTemplate 参数是 KeepNoteChanges 不是路径
+      - 只能走 IDrawingDoc.EditTemplate() → 画线 → EditSheet()
+      - V.L.line 单位是【毫米】；画完 PDF 才出现图框
+      - 只画框线/格子；标题栏【文字字段】仍无 API（见 drawing.title_block_fill）
+    evidence: "PDF 5226→5302 B，图框+标题栏格线可见（a0-gb/a4-gb 三种模板均无格式）"
+    allowed_modes: [interactive, reviewed]
+
+  - id: drawing.view_layout
+    label: 工程图视图落位与重叠断言
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, swlib_v2.py]
+    limitations:
+      - CreateDrawViewFromModelView3 的 x,y 就是【视图中心】（米），插入即定位
+      - IView.SetPosition 早绑定 member-not-found、动态绑定 unknown，不可用
+      - IView.Position 属性可写但 X 方向不生效，语义非线性，别用
+      - ISheet.SetScale(1,2) 才能放下 Ø140 级零件；1:1 会溢出 Letter 幅面
+      - 必须用 IView.GetOutline 回读 bbox 断言两两不重叠 + 不越界
+    evidence: "3 视图 box 30.7..109.3 / 30.7..109.3 / 153.8..236.2 mm，重叠对=无，越界=无"
+    allowed_modes: [interactive, reviewed]
+
+  - id: gear.internal_contour
+    label: 内齿圈内轮廓（齿孔边界）
+    level: verified
+    backends: [local-python, solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [gearmath.py, swlib_v2.py]
+    limitations:
+      - ★ 内齿 rf 在外、ra 在内，遍历顺序与外齿相反；照抄外齿顺序会横切齿体，面积虚高 46%
+      - 正确顺序：左齿廓 → 齿顶弧(+θ) → 右齿廓 → 齿根弧(小角)
+      - 必须加解析交叉校核 A_void = π·ra² + z·A_齿槽；只判闭合/单调抓不到
+      - 建模用「外圆 CCW + 内齿廓 CW 同草图一次拉伸」，不是切 72 个齿槽
+    evidence: "z72 轮廓 2881 点，面积解析校核 -0.0898%，体积 dev +0.0430%"
+    allowed_modes: [interactive, reviewed]
+
+  - id: gear.backlash_angular
+    label: 角向侧隙（齿厚减薄）
+    level: verified
+    backends: [local-python, solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [gearmath.py]
+    limitations:
+      - 每侧齿廓绕中心转 Δθ=(j/4)/r_pitch，是角向等效，不是真齿厚修形
+      - 未做齿厚公差带、未做齿廓修缘
+      - 分度圆处减薄量精确 = j/4，齿顶按 r 放大、齿根缩小
+    evidence: "j=0.06mm → 太阳 -0.349% / 行星 -0.324% / 齿圈 -0.335%（三件同向量级）"
+    allowed_modes: [interactive, reviewed]
+
+  - id: part.revolve_profile_polyline
+    label: 回转剖面用折线（非样条）
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, swlib.py]
+    limitations:
+      - ★ 样条穿过多边形尖角会向外鼓出、越过轴线 → FeatureRevolve2 恒返回 None
+      - 回转剖面必须用 swlib.line 逐段画；齿轮齿廓才用样条
+      - 中心线必须按剖面实际 y 范围外扩，不能固定画在 y=0..+0.02
+      - Top Plane 草图 y=-z_world，本项目剖面全在负 y
+    evidence: "销轴/法兰/壳体/行星架/输出轴 5 件 dev 全部 0.0000%，bbox 精确"
+    allowed_modes: [interactive, reviewed]
+
+  - id: sketch.hole_plane_normal
+    label: 孔的草图平面法向=孔轴
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32]
+    limitations:
+      - 平行世界 Z 的孔必须画在 Front Plane（法向 +Z）
+      - 画在 Top Plane 会把孔放到 y=-z 处，与实际实体错开 → cut 返回 None
+      - 口诀：孔的草图平面法向 = 孔的轴线方向
+    evidence: "法兰 4 孔 Top Plane 失败 → Front Plane 成功，dev 0.0000%"
+    allowed_modes: [interactive, reviewed]
+
+  - id: asm.multi_instance
+    label: 多实例复用（行星轮/销轴 ×3）
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, swlib_v2.py]
+    limitations:
+      - 同一 SLDPRT 插入 3 次，实例名 02_planet-1/2/3
+      - 每个实例单独 place_to 摆位（rot_z 按 120° 布置）
+      - 装配相位须推导：行星轮局部 +X 朝外，zp 奇数 → 朝内是齿槽中心
+    evidence: "13 组件（9 种零件），摆位 dev ≤0.005mm"
+    allowed_modes: [interactive, reviewed]
+
+  - id: drawing.auto_dimensions_driven
+    label: 驱动尺寸自动标注（装配体）
+    level: verified
+    backends: [solidworks-com-pywin32]
+    verified_versions: ["2022 SP5"]
+    dependencies: [SolidWorks, pywin32, swlib_v2.py]
+    limitations:
+      - 装配体上 types=32768 增量 +4（不是 0）—— 与"模型无驱动尺寸"的旧结论不同
+      - 仍是同一张图纸只插一次；比 types 必须每次新建图纸
+    evidence: "13 组件装配体 PDF 标注 0→4 条，rc=True"
+    allowed_modes: [interactive, reviewed]

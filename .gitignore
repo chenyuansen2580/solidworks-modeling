@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# 运行时产物（门禁时间戳等）
+.last_pass
+
+# 测试输出（四视图 / 探测零件 / review 报告）
+scripts/out/
+
+# 本地产物
+*.SLDPRT
+*.SLDASM
+*.SLDDRW
+*.png
+*.pdf
+trace*.json

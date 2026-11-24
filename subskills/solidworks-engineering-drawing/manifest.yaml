@@ -1,0 +1,13 @@
+name: solidworks-engineering-drawing
+status: verified
+parent: solidworks-modeling
+description: "零件图/装配图、四视图、PDF/BMP 证据、中文视图名、md5 互异校验、图纸底线"
+entry: SKILL.md
+capabilities:
+  - drawing.create
+  - drawing.view_count
+  - drawing.standards_check
+  - drawing.annotations
+  - export.png
+  - export.step
+verified_on: "2022 SP5 (30.5.0.0049)"
